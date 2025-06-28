@@ -78,7 +78,7 @@ ${promptBase}
 Cliente pergunta:
 "${pergunta}"
 
-Responda como a Marina, consultora especialista, seguindo todas as regras do prompt acima.
+Responda como a Laura, consultora especialista, seguindo todas as regras do prompt acima.
   `;
 
   try {
