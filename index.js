@@ -1,19 +1,18 @@
-import bodyParser from 'body-parser';
+import express from 'express';
 import axios from 'axios';
-import { Configuration, OpenAIApi } from 'openai';
+import OpenAI from 'openai';
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 
-// Configurações e tokens
 const PORT = process.env.PORT || 3000;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// Configuração OpenAI
-const configuration = new Configuration({
+const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
+
 const openai = new OpenAIApi(configuration);
 
 // Lista das imagens das provas sociais (antes e depois)
