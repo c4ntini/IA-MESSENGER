@@ -11,53 +11,28 @@ const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PROMPT_BASE = process.env.PROMPT_BASE;
 
-// Configuração OpenAI
+if (!OPENAI_API_KEY) {
+  console.error('ERRO: OPENAI_API_KEY não definido no ambiente!');
+  process.exit(1);
+}
+
+if (!PAGE_ACCESS_TOKEN) {
+  console.error('ERRO: PAGE_ACCESS_TOKEN não definido no ambiente!');
+  process.exit(1);
+}
+
+if (!PROMPT_BASE) {
+  console.error('ERRO: PROMPT_BASE não definido no ambiente!');
+  process.exit(1);
+}
+
 const configuration = new Configuration({
   apiKey: OPENAI_API_KEY,
 });
 const openai = new OpenAIApi(configuration);
 
-// Lista das imagens das provas sociais (antes e depois)
-const provasVisuais = [
-  'https://i.imgur.com/AEougXu.png',
-  'https://i.imgur.com/iLvLV7m.png',
-  'https://i.imgur.com/xnBLQW1.png'
-];
-
-// Função para enviar uma imagem pelo Messenger
-function enviarImagemProvaSocial(userId, imagemUrl) {
-  axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
-    recipient: { id: userId },
-    message: {
-      attachment: {
-        type: 'image',
-        payload: {
-          url: imagemUrl,
-          is_reusable: true
-        }
-      }
-    }
-  }).catch(err => {
-    console.error('Erro ao enviar imagem:', err?.response?.data || err.message || err);
-  });
-}
-
-// Envia todas as provas sociais com intervalo de 2 segundos
-function enviarTodasProvas(userId) {
-  provasVisuais.forEach((imagem, i) => {
-    setTimeout(() => {
-      enviarImagemProvaSocial(userId, imagem);
-    }, i * 2000);
-  });
-}
-
-// Função para gerar resposta GPT usando prompt do sistema + mensagem do usuário
+// Função para gerar resposta da IA
 async function gerarRespostaGPT(mensagemUsuario) {
-  if (!PROMPT_BASE) {
-    console.error('Variável de ambiente PROMPT_BASE não definida!');
-    return 'Ops! Estou com um problema para responder agora, pode tentar novamente mais tarde.';
-  }
-
   try {
     const response = await openai.createChatCompletion({
       model: 'gpt-4o-mini',
@@ -69,39 +44,41 @@ async function gerarRespostaGPT(mensagemUsuario) {
       temperature: 0.7,
     });
 
-    const respostaGPT = response.data.choices[0].message.content.trim();
-    return respostaGPT;
-
+    return response.data.choices[0].message.content.trim();
   } catch (error) {
     console.error('Erro ao chamar OpenAI:', error?.response?.data || error.message || error);
-    return 'Desculpe, estou com dificuldades para responder agora. Pode tentar novamente em alguns instantes?';
+    return 'Desculpe, não consegui processar sua solicitação agora.';
   }
 }
 
-// Função para enviar texto simples via Messenger
-function enviarTexto(userId, texto) {
-  axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
-    recipient: { id: userId },
-    message: { text: texto }
-  }).catch(err => {
+// Função para enviar texto via Messenger
+async function enviarTexto(userId, texto) {
+  try {
+    await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
+      recipient: { id: userId },
+      message: { text: texto },
+    });
+  } catch (err) {
     console.error('Erro ao enviar texto:', err?.response?.data || err.message || err);
-  });
+  }
 }
 
-// Função que processa a mensagem recebida, chama GPT para responder
+// Aqui você pode colocar outras funções, por exemplo, enviar imagens, etc.
+
+// Função que processa a mensagem recebida
 async function handleMessage(sender_psid, received_message) {
   const mensagem = received_message.toLowerCase();
 
+  // Exemplo: se mensagem tem palavra "resultados", envia provas visuais (não implementada aqui)
   if (mensagem.includes('resultados') || mensagem.includes('provas')) {
-    enviarTodasProvas(sender_psid);
+    // TODO: enviar provas visuais
   } else {
-    // Chama GPT para gerar resposta com prompt completo
     const resposta = await gerarRespostaGPT(received_message);
-    enviarTexto(sender_psid, resposta);
+    await enviarTexto(sender_psid, resposta);
   }
 }
 
-// Webhook GET para verificação
+// Webhook GET para verificação do Facebook
 app.get('/webhook', (req, res) => {
   const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'teste_token';
 
@@ -138,7 +115,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Inicializa servidor
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
