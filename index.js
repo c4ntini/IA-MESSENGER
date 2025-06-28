@@ -10,9 +10,10 @@ const PORT = process.env.PORT || 3000;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PROMPT_BASE = process.env.PROMPT_BASE;
+const PROMPT_INTRO = process.env.PROMPT_INTRO;
 
-if (!OPENAI_API_KEY || !PAGE_ACCESS_TOKEN || !PROMPT_BASE) {
-  console.error('ERRO: Variáveis OPENAI_API_KEY, PAGE_ACCESS_TOKEN e PROMPT_BASE devem estar definidas!');
+if (!OPENAI_API_KEY || !PAGE_ACCESS_TOKEN || !PROMPT_BASE || !PROMPT_INTRO) {
+  console.error('ERRO: Variáveis OPENAI_API_KEY, PAGE_ACCESS_TOKEN, PROMPT_BASE e PROMPT_INTRO devem estar definidas!');
   process.exit(1);
 }
 
@@ -20,12 +21,15 @@ const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
-async function gerarRespostaGPT(mensagemUsuario) {
+// Armazenamento temporário de usuários já atendidos (em memória)
+const usuariosAtendidos = {};
+
+async function gerarRespostaGPT(mensagemUsuario, prompt) {
   try {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: PROMPT_BASE },
+        { role: 'system', content: prompt },
         { role: 'user', content: mensagemUsuario },
       ],
       max_tokens: 800,
@@ -53,12 +57,13 @@ async function enviarTexto(userId, texto) {
 async function handleMessage(sender_psid, received_message) {
   const mensagem = received_message.toLowerCase();
 
-  if (mensagem.includes('resultados') || mensagem.includes('provas')) {
-    // Implementar envio de provas sociais, se desejar
-  } else {
-    const resposta = await gerarRespostaGPT(received_message);
-    await enviarTexto(sender_psid, resposta);
-  }
+  // Se for a primeira mensagem do usuário
+  const primeiraInteracao = !usuariosAtendidos[sender_psid];
+  usuariosAtendidos[sender_psid] = true;
+
+  const prompt = primeiraInteracao ? PROMPT_INTRO : PROMPT_BASE;
+  const resposta = await gerarRespostaGPT(mensagem, prompt);
+  await enviarTexto(sender_psid, resposta);
 }
 
 app.get('/webhook', (req, res) => {
