@@ -1,17 +1,21 @@
 import express from 'express';
+import bodyParser from 'body-parser';
 import axios from 'axios';
-import OpenAI from 'openai';
+import { Configuration, OpenAIApi } from 'openai';
 
 const app = express();
-app.use(express.json());
+app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 3000;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const PROMPT_BASE = process.env.PROMPT_BASE;
 
-const openai = new OpenAI({
+// Configuração OpenAI
+const configuration = new Configuration({
   apiKey: OPENAI_API_KEY,
 });
+const openai = new OpenAIApi(configuration);
 
 // Lista das imagens das provas sociais (antes e depois)
 const provasVisuais = [
@@ -47,56 +51,25 @@ function enviarTodasProvas(userId) {
   });
 }
 
-// Prompt ultra completo com o script da Marina (coloque seu prompt aqui exatamente)
-const promptBase = `
-[PROMPT AQUI]
-`;
-
-// Detecta qual kit o usuário quer, para enviar o link correto
-function detectarKit(texto) {
-  texto = texto.toLowerCase();
-  if (texto.includes("vida nova") || texto.includes("10 potes") || texto.includes("leve 10")) return "vidaNova";
-  if (texto.includes("transformação") || texto.includes("transformacao") || texto.includes("5 potes") || texto.includes("leve 5")) return "transformacao";
-  if (texto.includes("resultado") || texto.includes("3 potes") || texto.includes("leve 3")) return "resultado";
-  if (texto.includes("teste") || texto.includes("1 pote")) return "teste";
-  return null;
-}
-
-// Mapeamento dos links dos kits
-const linksPagamentos = {
-  teste: "https://pay.braip.co/ref?pl=plag8o2v&ck=chew8wl8&af=afi28ze27n",
-  resultado: "https://pay.braip.co/ref?pl=plar06ow&ck=chew8wl8&af=afi28ze27n",
-  transformacao: "https://pay.braip.co/ref?pl=plageykv&ck=chew8wl8&af=afi28ze27n",
-  vidaNova: "https://pay.braip.co/ref?pl=pladerwz&ck=chew8wl8&af=afi28ze27n"
-};
-
-// Função para gerar resposta do GPT
-async function gerarRespostaGPT(pergunta) {
-  const promptCompleto = `
-${promptBase}
-
-Cliente pergunta:
-"${pergunta}"
-
-Responda como a Laura, consultora especialista, seguindo todas as regras do prompt acima.
-  `;
+// Função para gerar resposta GPT usando prompt do sistema + mensagem do usuário
+async function gerarRespostaGPT(mensagemUsuario) {
+  if (!PROMPT_BASE) {
+    console.error('Variável de ambiente PROMPT_BASE não definida!');
+    return 'Ops! Estou com um problema para responder agora, pode tentar novamente mais tarde.';
+  }
 
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [{ role: 'user', content: promptCompleto }],
+    const response = await openai.createChatCompletion({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: PROMPT_BASE },
+        { role: 'user', content: mensagemUsuario }
+      ],
       max_tokens: 800,
       temperature: 0.7,
     });
 
-    let respostaGPT = response.choices[0].message.content.trim();
-
-    const kit = detectarKit(pergunta);
-    if (kit) {
-      const link = linksPagamentos[kit];
-      respostaGPT += `\n\n👉 Para garantir seu kit, clique aqui: ${link}`;
-    }
-
+    const respostaGPT = response.data.choices[0].message.content.trim();
     return respostaGPT;
 
   } catch (error) {
@@ -115,13 +88,14 @@ function enviarTexto(userId, texto) {
   });
 }
 
-// Função que processa a mensagem recebida, agora async para chamar GPT
+// Função que processa a mensagem recebida, chama GPT para responder
 async function handleMessage(sender_psid, received_message) {
   const mensagem = received_message.toLowerCase();
 
   if (mensagem.includes('resultados') || mensagem.includes('provas')) {
     enviarTodasProvas(sender_psid);
   } else {
+    // Chama GPT para gerar resposta com prompt completo
     const resposta = await gerarRespostaGPT(received_message);
     enviarTexto(sender_psid, resposta);
   }
@@ -158,7 +132,6 @@ app.post('/webhook', async (req, res) => {
         await handleMessage(sender_psid, webhook_event.message.text);
       }
     }
-
     res.status(200).send('EVENT_RECEIVED');
   } else {
     res.sendStatus(404);
