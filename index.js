@@ -1,7 +1,7 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 import axios from 'axios';
-import { Configuration, OpenAIApi } from 'openai';
+import OpenAI from 'openai';
 
 const app = express();
 app.use(bodyParser.json());
@@ -11,47 +11,34 @@ const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PROMPT_BASE = process.env.PROMPT_BASE;
 
-if (!OPENAI_API_KEY) {
-  console.error('ERRO: OPENAI_API_KEY não definido no ambiente!');
+if (!OPENAI_API_KEY || !PAGE_ACCESS_TOKEN || !PROMPT_BASE) {
+  console.error('ERRO: Variáveis OPENAI_API_KEY, PAGE_ACCESS_TOKEN e PROMPT_BASE devem estar definidas!');
   process.exit(1);
 }
 
-if (!PAGE_ACCESS_TOKEN) {
-  console.error('ERRO: PAGE_ACCESS_TOKEN não definido no ambiente!');
-  process.exit(1);
-}
-
-if (!PROMPT_BASE) {
-  console.error('ERRO: PROMPT_BASE não definido no ambiente!');
-  process.exit(1);
-}
-
-const configuration = new Configuration({
+const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
-const openai = new OpenAIApi(configuration);
 
-// Função para gerar resposta da IA
 async function gerarRespostaGPT(mensagemUsuario) {
   try {
-    const response = await openai.createChatCompletion({
+    const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: PROMPT_BASE },
-        { role: 'user', content: mensagemUsuario }
+        { role: 'user', content: mensagemUsuario },
       ],
       max_tokens: 800,
       temperature: 0.7,
     });
 
-    return response.data.choices[0].message.content.trim();
+    return response.choices[0].message.content.trim();
   } catch (error) {
-    console.error('Erro ao chamar OpenAI:', error?.response?.data || error.message || error);
+    console.error('Erro na chamada OpenAI:', error);
     return 'Desculpe, não consegui processar sua solicitação agora.';
   }
 }
 
-// Função para enviar texto via Messenger
 async function enviarTexto(userId, texto) {
   try {
     await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
@@ -59,26 +46,21 @@ async function enviarTexto(userId, texto) {
       message: { text: texto },
     });
   } catch (err) {
-    console.error('Erro ao enviar texto:', err?.response?.data || err.message || err);
+    console.error('Erro ao enviar mensagem:', err?.response?.data || err.message || err);
   }
 }
 
-// Aqui você pode colocar outras funções, por exemplo, enviar imagens, etc.
-
-// Função que processa a mensagem recebida
 async function handleMessage(sender_psid, received_message) {
   const mensagem = received_message.toLowerCase();
 
-  // Exemplo: se mensagem tem palavra "resultados", envia provas visuais (não implementada aqui)
   if (mensagem.includes('resultados') || mensagem.includes('provas')) {
-    // TODO: enviar provas visuais
+    // Implementar envio de provas sociais, se desejar
   } else {
     const resposta = await gerarRespostaGPT(received_message);
     await enviarTexto(sender_psid, resposta);
   }
 }
 
-// Webhook GET para verificação do Facebook
 app.get('/webhook', (req, res) => {
   const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'teste_token';
 
@@ -96,7 +78,6 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// Webhook POST para receber mensagens do Messenger
 app.post('/webhook', async (req, res) => {
   const body = req.body;
 
