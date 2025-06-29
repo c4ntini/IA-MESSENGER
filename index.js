@@ -21,15 +21,16 @@ const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
-// Armazenamento temporário de usuários já atendidos (em memória)
-const usuariosAtendidos = {};
+const usuariosRespondidos = new Set();
 
-async function gerarRespostaGPT(mensagemUsuario, prompt) {
+async function gerarRespostaGPT(mensagemUsuario, primeiraInteracao) {
   try {
+    const promptBase = primeiraInteracao ? PROMPT_INTRO : PROMPT_BASE;
+
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: prompt },
+        { role: 'system', content: promptBase },
         { role: 'user', content: mensagemUsuario },
       ],
       max_tokens: 800,
@@ -54,18 +55,41 @@ async function enviarTexto(userId, texto) {
   }
 }
 
-async function handleMessage(sender_psid, received_message) {
-  const mensagem = received_message.toLowerCase();
+async function handleEvent(sender_psid, webhook_event) {
+  let userMessage = '';
 
-  // Se for a primeira mensagem do usuário
-  const primeiraInteracao = !usuariosAtendidos[sender_psid];
-  usuariosAtendidos[sender_psid] = true;
+  // Verifica se veio uma mensagem de texto
+  if (webhook_event.message?.text) {
+    userMessage = webhook_event.message.text;
+  }
 
-  const prompt = primeiraInteracao ? PROMPT_INTRO : PROMPT_BASE;
-  const resposta = await gerarRespostaGPT(mensagem, prompt);
-  await enviarTexto(sender_psid, resposta);
+  // Verifica se veio de um botão com payload
+  else if (webhook_event.postback?.payload) {
+    userMessage = webhook_event.postback.payload;
+  }
+
+  // Referral = clique no anúncio com destino ao Messenger
+  else if (webhook_event.referral?.ref) {
+    userMessage = webhook_event.referral.ref;
+  }
+
+  // Optin = plugins externos, checkbox etc.
+  else if (webhook_event.optin?.ref) {
+    userMessage = webhook_event.optin.ref;
+  }
+
+  // Se recebeu qualquer forma de mensagem válida
+  if (userMessage) {
+    const primeiraInteracao = !usuariosRespondidos.has(sender_psid);
+    const resposta = await gerarRespostaGPT(userMessage, primeiraInteracao);
+    await enviarTexto(sender_psid, resposta);
+    usuariosRespondidos.add(sender_psid);
+  } else {
+    console.log('Evento recebido, mas sem mensagem válida.');
+  }
 }
 
+// Rota para verificação do Webhook
 app.get('/webhook', (req, res) => {
   const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'teste_token';
 
@@ -83,16 +107,15 @@ app.get('/webhook', (req, res) => {
   }
 });
 
+// Rota que recebe eventos do Messenger
 app.post('/webhook', async (req, res) => {
   const body = req.body;
 
   if (body.object === 'page') {
     for (const entry of body.entry) {
-      const webhook_event = entry.messaging[0];
-      const sender_psid = webhook_event.sender.id;
-
-      if (webhook_event.message && webhook_event.message.text) {
-        await handleMessage(sender_psid, webhook_event.message.text);
+      for (const messaging_event of entry.messaging) {
+        const sender_psid = messaging_event.sender.id;
+        await handleEvent(sender_psid, messaging_event);
       }
     }
     res.status(200).send('EVENT_RECEIVED');
