@@ -56,6 +56,8 @@ async function enviarTexto(userId, texto) {
 }
 
 async function handleEvent(sender_psid, webhook_event) {
+  console.log('📩 Evento completo recebido:', JSON.stringify(webhook_event, null, 2));
+
   let userMessage = '';
 
   // Captura texto
@@ -81,7 +83,7 @@ async function handleEvent(sender_psid, webhook_event) {
     await enviarTexto(sender_psid, resposta);
     usuariosRespondidos.add(sender_psid);
   } else {
-    console.log('Evento recebido, mas sem mensagem válida para processar.');
+    console.log('⚠️ Evento recebido, mas sem mensagem válida para processar.');
   }
 }
 
