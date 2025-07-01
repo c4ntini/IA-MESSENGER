@@ -58,38 +58,34 @@ async function enviarTexto(userId, texto) {
 async function handleEvent(sender_psid, webhook_event) {
   let userMessage = '';
 
-  // Verifica se veio uma mensagem de texto
+  // Captura texto
   if (webhook_event.message?.text) {
     userMessage = webhook_event.message.text;
   }
-
-  // Verifica se veio de um botão com payload
+  // Postback do botão
   else if (webhook_event.postback?.payload) {
     userMessage = webhook_event.postback.payload;
   }
-
-  // Referral = clique no anúncio com destino ao Messenger
+  // Referral (clicou anúncio, link, etc)
   else if (webhook_event.referral?.ref) {
     userMessage = webhook_event.referral.ref;
   }
-
-  // Optin = plugins externos, checkbox etc.
+  // Optin (checkbox plugin, etc)
   else if (webhook_event.optin?.ref) {
     userMessage = webhook_event.optin.ref;
   }
 
-  // Se recebeu qualquer forma de mensagem válida
   if (userMessage) {
     const primeiraInteracao = !usuariosRespondidos.has(sender_psid);
     const resposta = await gerarRespostaGPT(userMessage, primeiraInteracao);
     await enviarTexto(sender_psid, resposta);
     usuariosRespondidos.add(sender_psid);
   } else {
-    console.log('Evento recebido, mas sem mensagem válida.');
+    console.log('Evento recebido, mas sem mensagem válida para processar.');
   }
 }
 
-// Rota para verificação do Webhook
+// Webhook verify
 app.get('/webhook', (req, res) => {
   const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'teste_token';
 
@@ -107,7 +103,7 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// Rota que recebe eventos do Messenger
+// Rota webhook que recebe eventos Messenger
 app.post('/webhook', async (req, res) => {
   const body = req.body;
 
