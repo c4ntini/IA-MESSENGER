@@ -1,0 +1,29 @@
+services:
+  # Serviço 1: A sua aplicação Node.js (a vendedora Laura)
+  - type: web
+    name: laura-chatbot-app
+    env: node
+    buildCommand: "npm install"
+    startCommand: "node index.js"
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: redis-laura-chatbot
+          property: internalUrl
+      # Adicione suas outras variáveis de ambiente aqui
+      - key: PAGE_ACCESS_TOKEN
+        sync: false # 'sync: false' significa que você vai definir o valor no site do Render
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: PROMPT_BASE
+        sync: false
+      - key: PROMPT_INTRO
+        sync: false
+      - key: VERIFY_TOKEN
+        sync: false
+
+  # Serviço 2: O banco de dados Redis para armazenar o histórico
+  - type: redis
+    name: redis-laura-chatbot
+    plan: free
