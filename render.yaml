@@ -1,3 +1,5 @@
+# Arquivo de configuração do Render (Blueprint) - VERSÃO CORRIGIDA
+
 services:
   # Serviço 1: A sua aplicação Node.js (a vendedora Laura)
   - type: web
@@ -10,10 +12,11 @@ services:
         fromService:
           type: redis
           name: redis-laura-chatbot
-          property: internalUrl
-      # Adicione suas outras variáveis de ambiente aqui
+          # CORREÇÃO 1: Trocado 'internalUrl' por 'connectionString'
+          property: connectionString
+      # Suas outras variáveis de ambiente (adicione os valores no site do Render)
       - key: PAGE_ACCESS_TOKEN
-        sync: false # 'sync: false' significa que você vai definir o valor no site do Render
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: PROMPT_BASE
@@ -27,3 +30,7 @@ services:
   - type: redis
     name: redis-laura-chatbot
     plan: free
+    # CORREÇÃO 2: Adicionada a lista de permissões de IP
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: "Permitir acesso de qualquer lugar"
