@@ -6,41 +6,70 @@ import OpenAI from 'openai';
 const app = express();
 app.use(bodyParser.json());
 
+// --- CONFIGURAÇÃO ---
 const PORT = process.env.PORT || 3000;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PROMPT_BASE = process.env.PROMPT_BASE;
 const PROMPT_INTRO = process.env.PROMPT_INTRO;
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'seu_token_de_verificacao_secreto'; // Adicione seu token aqui se não estiver no Render
 
 if (!OPENAI_API_KEY || !PAGE_ACCESS_TOKEN || !PROMPT_BASE || !PROMPT_INTRO) {
-  console.error('ERRO: Variáveis OPENAI_API_KEY, PAGE_ACCESS_TOKEN, PROMPT_BASE e PROMPT_INTRO devem estar definidas!');
+  console.error('ERRO: Variáveis de ambiente não foram carregadas corretamente!');
   process.exit(1);
 }
 
-const openai = new OpenAI({
-  apiKey: OPENAI_API_KEY,
-});
+const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-const usuariosRespondidos = new Set();
+// --- ARMAZENAMENTO DE HISTÓRICO ---
+// Objeto para guardar o histórico de cada usuário.
+// Em produção real, isso seria um banco de dados como Redis para não perder com reinicializações.
+const historicoConversas = {};
 
-async function gerarRespostaGPT(mensagemUsuario, primeiraInteracao) {
+// --- FUNÇÕES PRINCIPAIS ---
+
+async function gerarRespostaGPT(userId, mensagemUsuario) {
+  // 1. Define qual prompt usar (introdução ou base)
+  const primeiraInteracao = !historicoConversas[userId] || historicoConversas[userId].length === 0;
+  const promptSistema = primeiraInteracao ? PROMPT_INTRO : PROMPT_BASE;
+
+  // 2. Cria o array de mensagens para a API
+  const messages = [{ role: 'system', content: promptSistema }];
+
+  // 3. Adiciona o histórico da conversa (se existir)
+  if (!primeiraInteracao) {
+    messages.push(...historicoConversas[userId]);
+  }
+
+  // 4. Adiciona a nova mensagem do usuário
+  messages.push({ role: 'user', content: mensagemUsuario });
+
   try {
-    const promptBase = primeiraInteracao ? PROMPT_INTRO : PROMPT_BASE;
-
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: promptBase },
-        { role: 'user', content: mensagemUsuario },
-      ],
+      model: 'gpt-4o-mini', // Recomendo o gpt-4o para mais inteligência, mas o mini é mais rápido/barato
+      messages: messages,
       max_tokens: 800,
       temperature: 0.7,
     });
 
-    return response.choices[0].message.content.trim();
+    const respostaIA = response.choices[0].message.content.trim();
+
+    // 5. Atualiza o histórico com a pergunta do usuário e a resposta da IA
+    if (!historicoConversas[userId]) {
+      historicoConversas[userId] = [];
+    }
+    historicoConversas[userId].push({ role: 'user', content: mensagemUsuario });
+    historicoConversas[userId].push({ role: 'assistant', content: respostaIA });
+    
+    // Limita o histórico para não ficar muito grande e caro
+    if (historicoConversas[userId].length > 10) {
+        historicoConversas[userId] = historicoConversas[userId].slice(-10);
+    }
+
+    return respostaIA;
   } catch (error) {
     console.error('Erro na chamada OpenAI:', error);
-    return 'Desculpe, não consegui processar sua solicitação agora.';
+    return 'Desculpe, estou com uma instabilidade no meu sistema. Poderia repetir, por favor?';
   }
 }
 
@@ -49,48 +78,32 @@ async function enviarTexto(userId, texto) {
     await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
       recipient: { id: userId },
       message: { text: texto },
-    });
+    } );
   } catch (err) {
     console.error('Erro ao enviar mensagem:', err?.response?.data || err.message || err);
   }
 }
 
 async function handleEvent(sender_psid, webhook_event) {
-  console.log('📩 Evento completo recebido:', JSON.stringify(webhook_event, null, 2));
-
   let userMessage = '';
 
-  // Captura texto
-  if (webhook_event.message?.text) {
-    userMessage = webhook_event.message.text;
-  }
-  // Postback do botão
-  else if (webhook_event.postback?.payload) {
-    userMessage = webhook_event.postback.payload;
-  }
-  // Referral (clicou anúncio, link, etc)
-  else if (webhook_event.referral?.ref) {
-    userMessage = webhook_event.referral.ref;
-  }
-  // Optin (checkbox plugin, etc)
-  else if (webhook_event.optin?.ref) {
-    userMessage = webhook_event.optin.ref;
-  }
+  if (webhook_event.message?.text) userMessage = webhook_event.message.text;
+  else if (webhook_event.postback?.payload) userMessage = webhook_event.postback.payload;
+  else if (webhook_event.referral?.ref) userMessage = webhook_event.referral.ref;
+  else if (webhook_event.optin?.ref) userMessage = webhook_event.optin.ref;
 
   if (userMessage) {
-    const primeiraInteracao = !usuariosRespondidos.has(sender_psid);
-    const resposta = await gerarRespostaGPT(userMessage, primeiraInteracao);
+    // A lógica de 'primeiraInteracao' agora está dentro de gerarRespostaGPT
+    const resposta = await gerarRespostaGPT(sender_psid, userMessage);
     await enviarTexto(sender_psid, resposta);
-    usuariosRespondidos.add(sender_psid);
   } else {
-    console.log('⚠️ Evento recebido, mas sem mensagem válida para processar.');
+    console.log('⚠️ Evento sem mensagem de texto válida.');
   }
 }
 
-// Webhook verify
-app.get('/webhook', (req, res) => {
-  const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'teste_token';
+// --- ROTAS DO SERVIDOR EXPRESS ---
 
+app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
@@ -105,15 +118,15 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// Rota webhook que recebe eventos Messenger
 app.post('/webhook', async (req, res) => {
   const body = req.body;
-
   if (body.object === 'page') {
     for (const entry of body.entry) {
       for (const messaging_event of entry.messaging) {
-        const sender_psid = messaging_event.sender.id;
-        await handleEvent(sender_psid, messaging_event);
+        if (messaging_event.sender && messaging_event.message) {
+            const sender_psid = messaging_event.sender.id;
+            await handleEvent(sender_psid, messaging_event);
+        }
       }
     }
     res.status(200).send('EVENT_RECEIVED');
