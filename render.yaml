@@ -4,6 +4,7 @@ services:
   # Serviço 1: A sua aplicação Node.js (a vendedora Laura)
   - type: web
     name: laura-chatbot-app
+    plan: free
     env: node
     buildCommand: "npm install"
     startCommand: "node index.js"
